@@ -99,7 +99,7 @@ class DDP(pl.LightningModule):
                           fold=self.conf.model.fold,
                           )
 
-        self.ema   = UNet(self.conf.model.in_channel,
+        self.ema = UNet(self.conf.model.in_channel,
                           self.conf.model.channel,
                           channel_multiplier=self.conf.model.channel_multiplier,
                           n_res_blocks=self.conf.model.n_res_blocks,
@@ -121,27 +121,22 @@ class DDP(pl.LightningModule):
 
 
     def setup(self, stage):
-
         self.train_set, self.valid_set = dataset.get_train_data(self.conf)
 
     def forward(self, x):
-
         return self.diffusion.p_sample_loop(self.model, x.shape)
 
     def configure_optimizers(self):
-
         if self.conf.training.optimizer.type == 'adam':
             optimizer = optim.Adam(self.model.parameters(), lr=self.conf.training.optimizer.lr)
         else:
             raise NotImplementedError
-
         return optimizer
 
     def training_step(self, batch, batch_nb):
-
         img, _ = batch
-        time   = (torch.rand(img.shape[0]) * 1000).type(torch.int64).to(img.device)
-        loss   = self.diffusion.training_losses(self.model, img, time).mean()
+        time = (torch.rand(img.shape[0]) * 1000).type(torch.int64).to(img.device)
+        loss = self.diffusion.training_losses(self.model, img, time).mean()
 
         accumulate(self.ema, self.model.module if isinstance(self.model, nn.DataParallel) else self.model, 0.9999)
 
@@ -150,30 +145,26 @@ class DDP(pl.LightningModule):
         return {'loss': loss, 'log': tensorboard_logs}
 
     def train_dataloader(self):
-
         train_loader = DataLoader(self.train_set,
                                   batch_size=self.conf.training.dataloader.batch_size,
                                   shuffle=True,
                                   num_workers=self.conf.training.dataloader.num_workers,
                                   pin_memory=True,
                                   drop_last=self.conf.training.dataloader.drop_last)
-
         return train_loader
 
     def validation_step(self, batch, batch_nb):
-
         img, _ = batch
-        time   = (torch.rand(img.shape[0]) * 1000).type(torch.int64).to(img.device)
-        loss   = self.diffusion.training_losses(self.ema, img, time).mean()
+        time = (torch.rand(img.shape[0]) * 1000).type(torch.int64).to(img.device)
+        loss = self.diffusion.training_losses(self.ema, img, time).mean()
 
         return {'val_loss': loss}
 
     def validation_epoch_end(self, outputs):
-
-        avg_loss         = torch.stack([x['val_loss'] for x in outputs]).mean()
+        avg_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
         tensorboard_logs = {'val_loss': avg_loss}
 
-        shape  = (16, 3, self.conf.dataset.resolution, self.conf.dataset.resolution)
+        shape = (16, 3, self.conf.dataset.resolution, self.conf.dataset.resolution)
         sample = progressive_samples_fn(self.ema, self.diffusion, shape, device='cuda' if self.on_gpu else 'cpu')
 
         grid = make_grid(sample['samples'], nrow=4)
