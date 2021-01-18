@@ -1,7 +1,7 @@
 {
 "dataset": {
     "name": "celeba",
-    "path": "/celeba_data/",
+    "path": "J:\\Celebs_dataset\\celeba",
     "resolution": 128
 }
 ,
@@ -33,15 +33,15 @@
         "lr": 2e-5
     },
     "dataloader": {
-        "batch_size": 32,
-        "num_workers": 2,
+        "batch_size": 4,
+        "num_workers": 1,
         "drop_last": true
     }
 }
 ,
 "validation": {
     "dataloader": {
-        "batch_size": 32,
+        "batch_size": 4,
         "num_workers": 1,
         "drop_last": false
     }
