@@ -87,7 +87,7 @@ class DDP(pl.LightningModule):
     def __init__(self, conf):
         super().__init__()
 
-        self.conf  = conf
+        self.conf = conf
         self.save_hyperparameters()
 
         self.model = UNet(self.conf.model.in_channel,
@@ -190,7 +190,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--train", action="store_true", default=False, help="Training or evaluation?")
-    parser.add_argument("--config", type=str, required=True, help="Path to config.")
+    parser.add_argument("--config", type=str, help="Path to config.")
 
     # Training specific args
     parser.add_argument("--ckpt_dir", type=str, default='ckpts', help="Path to folder to save checkpoints.")
@@ -204,6 +204,11 @@ if __name__ == "__main__":
     parser.add_argument("--n_samples", type=int, default=20, help="Number of generated samples in evaluation.")
 
     args = parser.parse_args()
+    args.config = 'config\\diffusion_celeba.json'
+    args.ckpt_dir = 'celeba_ckpt'
+    args.ckpt_freq = 5
+    args.model_dir = 'celeba_ckpt\\last.ckpt'
+    args.train = True
 
     path_to_config = args.config
     with open(path_to_config, 'r') as f:
