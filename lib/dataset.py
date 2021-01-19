@@ -114,8 +114,8 @@ def get_train_data(conf):
                                                 transform=transform_test,
                                                 download=True)
 
-        num_train  = len(train_set)
-        indices    = torch.randperm(num_train).tolist()
+        num_train = len(train_set)
+        indices = torch.randperm(num_train).tolist()
         valid_size = int(np.floor(0.05 * num_train))
 
         train_idx, valid_idx = indices[valid_size:], indices[:valid_size]
