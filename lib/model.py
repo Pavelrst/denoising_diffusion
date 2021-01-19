@@ -5,7 +5,7 @@ import math
 import torch
 from torch import nn
 import torch.nn.functional as F
-
+import torchvision.models as models
 
 def swish(input):
     return input * torch.sigmoid(input)
@@ -159,37 +159,46 @@ class TimeEmbedding(nn.Module):
     def __init__(self, dim):
         super().__init__()
 
-        self.dim      = dim
-        half_dim      = self.dim // 2
+        self.dim = dim
+        half_dim = self.dim // 2
         self.inv_freq = torch.exp(torch.arange(half_dim, dtype=torch.float32) * (-math.log(10000) / (half_dim - 1)))
 
     def forward(self, input):
-        shape       = input.shape
-        input       = input.view(-1).to(torch.float32)
+        shape = input.shape
+        input = input.view(-1).to(torch.float32)
         sinusoid_in = torch.ger(input, self.inv_freq.to(input.device))
-        pos_emb     = torch.cat([sinusoid_in.sin(), sinusoid_in.cos()], dim=-1)
-        pos_emb     = pos_emb.view(*shape, self.dim)
+        pos_emb = torch.cat([sinusoid_in.sin(), sinusoid_in.cos()], dim=-1)
+        pos_emb = pos_emb.view(*shape, self.dim)
 
         return pos_emb
 
 
 class ResBlockWithAttention(nn.Module):
-    def __init__(self, in_channel, out_channel, time_dim, dropout, use_attention=False):
+    def __init__(self, in_channel, out_channel, time_dim, dropout, use_attention=False, conditional=False, cond_in_ch=512):
         super().__init__()
 
         self.resblocks = ResBlock(in_channel, out_channel, time_dim, dropout)
 
         if use_attention:
             self.attention = SelfAttention(out_channel)
-
         else:
             self.attention = None
 
-    def forward(self, input, time):
+        self.conditional = conditional
+        if self.conditional:
+            self.condition_conv = nn.Conv2d(in_channels=cond_in_ch, out_channels=out_channel, kernel_size=3, stride=1)
+
+
+    def forward(self, input, time, condition=None):
         out = self.resblocks(input, time)
 
         if self.attention is not None:
             out = self.attention(out)
+
+        if self.conditional:
+            condition = self.condition_conv(condition)
+            condition = torch.nn.Upsample(size=(out.shape[2], out.shape[3]))(condition)
+            out = out + condition
 
         return out
 
@@ -234,6 +243,7 @@ class UNet(nn.Module):
         attn_strides,
         dropout=0,
         fold=1,
+        conditional=False,
     ):
         super().__init__()
 
@@ -243,6 +253,12 @@ class UNet(nn.Module):
 
         n_block = len(channel_multiplier)
 
+        # conditioning
+        self.conditional = conditional
+        if self.conditional:
+            self.vgg16 = models.vgg16(pretrained=True).features[0:9]
+            self.cond_in_ch = 128
+
         self.time = nn.Sequential(
             TimeEmbedding(channel),
             linear(channel, time_dim),
@@ -250,9 +266,9 @@ class UNet(nn.Module):
             linear(time_dim, time_dim),
         )
 
-        down_layers   = [conv2d(in_channel * (fold ** 2), channel, 3, padding=1)]
+        down_layers = [conv2d(in_channel * (fold ** 2), channel, 3, padding=1)]
         feat_channels = [channel]
-        in_channel    = channel
+        in_channel = channel
         for i in range(n_block):
             for _ in range(n_res_blocks):
                 channel_mult = channel * channel_multiplier[i]
@@ -264,6 +280,8 @@ class UNet(nn.Module):
                         time_dim,
                         dropout,
                         use_attention=2 ** i in attn_strides,
+                        conditional=self.conditional,
+                        cond_in_ch=self.cond_in_ch,
                     )
                 )
 
@@ -319,16 +337,26 @@ class UNet(nn.Module):
             conv2d(in_channel, 3 * (fold ** 2), 3, padding=1, scale=1e-10),
         )
 
+
+
     def forward(self, input, time):
         time_embed = self.time(time)
 
         feats = []
 
+        # self.fold is always one, so out=input
         out = spatial_fold(input, self.fold)
+
+        # condition
+        if self.conditional:
+            with torch.no_grad():
+                condition = self.vgg16(input)
+        else:
+            condition = None
+
         for layer in self.down:
             if isinstance(layer, ResBlockWithAttention):
-                out = layer(out, time_embed)
-
+                out = layer(out, time_embed, condition=condition)
             else:
                 out = layer(out)
 
@@ -340,11 +368,13 @@ class UNet(nn.Module):
         for layer in self.up:
             if isinstance(layer, ResBlockWithAttention):
                 out = layer(torch.cat((out, feats.pop()), 1), time_embed)
-
             else:
                 out = layer(out)
 
         out = self.out(out)
+
+        # self.fold is always one, so out=input
         out = spatial_unfold(out, self.fold)
+
 
         return out

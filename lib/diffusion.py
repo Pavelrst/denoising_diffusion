@@ -203,11 +203,11 @@ class GaussianDiffusion(nn.Module):
     def p_sample(self, model, x, t, noise_fn, clip_denoised=True, return_pred_x0=False):
 
         mean, _, log_var, pred_x0 = self.p_mean_variance(model, x, t, clip_denoised, return_pred_x0=True)
-        noise                     = noise_fn(x.shape, dtype=x.dtype).to(x.device)
+        noise = noise_fn(x.shape, dtype=x.dtype).to(x.device)
 
-        shape        = [x.shape[0]] + [1] * (x.ndim - 1)
+        shape = [x.shape[0]] + [1] * (x.ndim - 1)
         nonzero_mask = (1 - (t == 0).type(torch.float32)).view(*shape).to(x.device)
-        sample       = mean + nonzero_mask * torch.exp(0.5 * log_var) * noise
+        sample = mean + nonzero_mask * torch.exp(0.5 * log_var) * noise
 
         return (sample, pred_x0) if return_pred_x0 else sample
 
@@ -215,7 +215,7 @@ class GaussianDiffusion(nn.Module):
     def p_sample_loop(self, model, shape, noise_fn=torch.randn):
 
         device = 'cuda' if next(model.parameters()).is_cuda else 'cpu'
-        img    = noise_fn(shape).to(device)
+        img = noise_fn(shape).to(device)
 
         for i in reversed(range(self.num_timesteps)):
             img = self.p_sample(
@@ -234,7 +234,7 @@ class GaussianDiffusion(nn.Module):
         img = noise_fn(shape, dtype=torch.float32).to(device)
 
         num_recorded_x0_pred = self.num_timesteps // include_x0_pred_freq
-        x0_preds_            = torch.zeros((shape[0], num_recorded_x0_pred, *shape[1:]), dtype=torch.float32).to(device)
+        x0_preds_ = torch.zeros((shape[0], num_recorded_x0_pred, *shape[1:]), dtype=torch.float32).to(device)
 
         for i in reversed(range(self.num_timesteps)):
 
@@ -302,7 +302,7 @@ class GaussianDiffusion(nn.Module):
             }[self.model_mean_type]
 
             model_output = model(x_t, t)
-            losses       = torch.mean((target - model_output).view(x_0.shape[0], -1)**2, dim=1)
+            losses = torch.mean((target - model_output).view(x_0.shape[0], -1)**2, dim=1)
 
         else:
             raise NotImplementedError(self.loss_type)
@@ -311,10 +311,10 @@ class GaussianDiffusion(nn.Module):
 
     def _prior_bpd(self, x_0):
 
-        B, T                        = x_0.shape[0], self.num_timesteps
+        B, T = x_0.shape[0], self.num_timesteps
         qt_mean, _, qt_log_variance = self.q_mean_variance(x_0,
                                                            t=torch.full((B,), T - 1, dtype=torch.int64))
-        kl_prior                    = normal_kl(mean1=qt_mean,
+        kl_prior = normal_kl(mean1=qt_mean,
                                                 logvar1=qt_log_variance,
                                                 mean2=torch.zeros_like(qt_mean),
                                                 logvar2=torch.zeros_like(qt_log_variance))

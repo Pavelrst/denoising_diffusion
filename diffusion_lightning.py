@@ -90,6 +90,7 @@ class DDP(pl.LightningModule):
         self.conf = conf
         self.save_hyperparameters()
 
+        # this is the training model
         self.model = UNet(self.conf.model.in_channel,
                           self.conf.model.channel,
                           channel_multiplier=self.conf.model.channel_multiplier,
@@ -97,16 +98,19 @@ class DDP(pl.LightningModule):
                           attn_strides=self.conf.model.attn_strides,
                           dropout=self.conf.model.dropout,
                           fold=self.conf.model.fold,
+                          conditional=True,
                           )
 
+        # EMA model - Exponential Moving Average of self.model params
         self.ema = UNet(self.conf.model.in_channel,
-                          self.conf.model.channel,
-                          channel_multiplier=self.conf.model.channel_multiplier,
-                          n_res_blocks=self.conf.model.n_res_blocks,
-                          attn_strides=self.conf.model.attn_strides,
-                          dropout=self.conf.model.dropout,
-                          fold=self.conf.model.fold,
-                          )
+                        self.conf.model.channel,
+                        channel_multiplier=self.conf.model.channel_multiplier,
+                        n_res_blocks=self.conf.model.n_res_blocks,
+                        attn_strides=self.conf.model.attn_strides,
+                        dropout=self.conf.model.dropout,
+                        fold=self.conf.model.fold,
+                        conditional=True,
+                        )
 
         self.betas = make_beta_schedule(schedule=self.conf.model.schedule.type,
                                         start=self.conf.model.schedule.beta_start,
@@ -204,11 +208,12 @@ if __name__ == "__main__":
     parser.add_argument("--n_samples", type=int, default=20, help="Number of generated samples in evaluation.")
 
     args = parser.parse_args()
-    args.config = 'config\\diffusion_celeba.json'
+    #args.config = 'config\\diffusion_celeba.json'
+    args.config = 'config\\debug.json'
     args.ckpt_dir = 'celeba_ckpt'
-    args.ckpt_freq = 5
+    args.ckpt_freq = 1
     args.model_dir = 'celeba_ckpt\\last.ckpt'
-    args.train = True
+    args.train = False
 
     path_to_config = args.config
     with open(path_to_config, 'r') as f:
