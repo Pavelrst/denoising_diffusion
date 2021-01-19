@@ -28,8 +28,8 @@ def make_beta_schedule(schedule, start, end, n_timestep):
 
 def _warmup_beta(start, end, n_timestep, warmup_frac):
 
-    betas               = end * torch.ones(n_timestep, dtype=torch.float64)
-    warmup_time         = int(n_timestep * warmup_frac)
+    betas = end * torch.ones(n_timestep, dtype=torch.float64)
+    warmup_time = int(n_timestep * warmup_frac)
     betas[:warmup_time] = torch.linspace(start, end, warmup_time, dtype=torch.float64)
 
     return betas
@@ -43,9 +43,16 @@ def normal_kl(mean1, logvar1, mean2, logvar2):
 
 
 def extract(input, t, shape):
-    out     = torch.gather(input, 0, t.to(input.device))
+    '''
+    :param input: a fixed [Tensor] that gradually descends from 1 to 0.
+    :param t: [Tensor] of time-step indexes same size as batch. Example: [794, 214, 48, 23]
+    :param shape: Shape of the images batch
+    :return: [Tensor] of multipliers, same size as batch. The multiplies values gathered from
+    'input' according to indexes from 't'. Example: [[[[0.04, 0.78, 0.98, 0.99]]]]
+    '''
+    out = torch.gather(input, 0, t.to(input.device))
     reshape = [shape[0]] + [1] * (len(shape) - 1)
-    out     = out.reshape(*reshape)
+    out = out.reshape(*reshape)
 
     return out
 
@@ -69,16 +76,16 @@ def discretized_gaussian_log_likelihood(x, *, means, log_scales):
 
     # Assumes data is integers [0, 255] rescaled to [-1, 1]
     centered_x = x - means
-    inv_stdv   = torch.exp(-log_scales)
-    plus_in    = inv_stdv * (centered_x + 1. / 255.)
-    cdf_plus   = approx_standard_normal_cdf(plus_in)
-    min_in     = inv_stdv * (centered_x - 1. / 255.)
-    cdf_min    = approx_standard_normal_cdf(min_in)
+    inv_stdv = torch.exp(-log_scales)
+    plus_in = inv_stdv * (centered_x + 1. / 255.)
+    cdf_plus = approx_standard_normal_cdf(plus_in)
+    min_in = inv_stdv * (centered_x - 1. / 255.)
+    cdf_min = approx_standard_normal_cdf(min_in)
 
-    log_cdf_plus          = torch.log(torch.clamp(cdf_plus, min=1e-12))
+    log_cdf_plus = torch.log(torch.clamp(cdf_plus, min=1e-12))
     log_one_minus_cdf_min = torch.log(torch.clamp(1 - cdf_min, min=1e-12))
-    cdf_delta             = cdf_plus - cdf_min
-    log_probs             = torch.where(x < -0.999, log_cdf_plus,
+    cdf_delta = cdf_plus - cdf_min
+    log_probs = torch.where(x < -0.999, log_cdf_plus,
                                         torch.where(x > 0.999, log_one_minus_cdf_min,
                                                     torch.log(torch.clamp(cdf_delta, min=1e-12))))
 
@@ -89,13 +96,13 @@ class GaussianDiffusion(nn.Module):
     def __init__(self, betas, model_mean_type, model_var_type, loss_type):
         super().__init__()
 
-        betas              = betas.type(torch.float64)
-        timesteps          = betas.shape[0]
+        betas = betas.type(torch.float64)
+        timesteps = betas.shape[0]
         self.num_timesteps = int(timesteps)
 
         self.model_mean_type = model_mean_type  # xprev, xstart, eps
-        self.model_var_type  = model_var_type   # learned, fixedsmall, fixedlarge
-        self.loss_type       = loss_type        # kl, mse
+        self.model_var_type = model_var_type   # learned, fixedsmall, fixedlarge
+        self.loss_type = loss_type        # kl, mse
 
         alphas = 1 - betas
         alphas_cumprod = torch.cumprod(alphas, 0)
@@ -130,16 +137,25 @@ class GaussianDiffusion(nn.Module):
         return mean, variance, log_variance
 
     def q_sample(self, x_0, t, noise=None):
+        '''
+        :param x_0: Original images batch
+        :param t: Timesteps batch
+        :param noise: noise function
+        :return: weighted sum of an image and the noise, according to time-step.
+        Basically, noisy image. Higher time-step -> Noisier image.
+        '''
         if noise is None:
             noise = torch.randn_like(x_0)
 
-        return (extract(self.sqrt_alphas_cumprod, t, x_0.shape) * x_0
-                + extract(self.sqrt_one_minus_alphas_cumprod, t, x_0.shape) * noise)
+        img_part = extract(self.sqrt_alphas_cumprod, t, x_0.shape) * x_0
+        noise_part = extract(self.sqrt_one_minus_alphas_cumprod, t, x_0.shape) * noise
+
+        return img_part + noise_part
 
     def q_posterior_mean_variance(self, x_0, x_t, t):
-        mean            = (extract(self.posterior_mean_coef1, t, x_t.shape) * x_0
+        mean = (extract(self.posterior_mean_coef1, t, x_t.shape) * x_0
                            + extract(self.posterior_mean_coef2, t, x_t.shape) * x_t)
-        var             = extract(self.posterior_variance, t, x_t.shape)
+        var = extract(self.posterior_variance, t, x_t.shape)
         log_var_clipped = extract(self.posterior_log_variance_clipped, t, x_t.shape)
 
         return mean, var, log_var_clipped
@@ -151,7 +167,7 @@ class GaussianDiffusion(nn.Module):
         # Learned or fixed variance?
         if self.model_var_type == 'learned':
             model_output, log_var = torch.split(model_output, 2, dim=-1)
-            var                   = torch.exp(log_var)
+            var = torch.exp(log_var)
 
         elif self.model_var_type in ['fixedsmall', 'fixedlarge']:
 
@@ -174,14 +190,14 @@ class GaussianDiffusion(nn.Module):
         if self.model_mean_type == 'xprev':
             # the model predicts x_{t-1}
             pred_x_0 = _maybe_clip(self.predict_start_from_prev(x_t=x, t=t, x_prev=model_output))
-            mean     = model_output
+            mean = model_output
         elif self.model_mean_type == 'xstart':
             # the model predicts x_0
-            pred_x0    = _maybe_clip(model_output)
+            pred_x0 = _maybe_clip(model_output)
             mean, _, _ = self.q_posterior_mean_variance(x_0=pred_x0, x_t=x, t=t)
         elif self.model_mean_type == 'eps':
             # the model predicts epsilon
-            pred_x0    = _maybe_clip(self.predict_start_from_noise(x_t=x, t=t, noise=model_output))
+            pred_x0 = _maybe_clip(self.predict_start_from_noise(x_t=x, t=t, noise=model_output))
             mean, _, _ = self.q_posterior_mean_variance(x_0=pred_x0, x_t=x, t=t)
         else:
             raise NotImplementedError(self.model_mean_type)
@@ -243,7 +259,8 @@ class GaussianDiffusion(nn.Module):
                                          x=img,
                                          t=torch.full((shape[0],), i, dtype=torch.int64).to(device),
                                          noise_fn=noise_fn,
-                                         return_pred_x0=True)
+                                         return_pred_x0=True
+                                         )
 
             # Keep track of prediction of x0
             insert_mask = np.floor(i // include_x0_pred_freq) == torch.arange(num_recorded_x0_pred,
@@ -285,6 +302,7 @@ class GaussianDiffusion(nn.Module):
         if noise is None:
             noise = torch.randn_like(x_0)
 
+        # generate noisy image
         x_t = self.q_sample(x_0=x_0, t=t, noise=noise)
 
         # Calculate the loss
@@ -301,6 +319,7 @@ class GaussianDiffusion(nn.Module):
                 'eps': noise
             }[self.model_mean_type]
 
+            # denoise by Unet
             model_output = model(x_t, t)
             losses = torch.mean((target - model_output).view(x_0.shape[0], -1)**2, dim=1)
 
