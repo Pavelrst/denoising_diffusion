@@ -125,12 +125,14 @@ class DDP(pl.LightningModule):
 
 
     def setup(self, stage):
+        print("DDP: setup, stage: ", stage)
         self.train_set, self.valid_set = dataset.get_train_data(self.conf)
 
     def forward(self, x):
         return self.diffusion.p_sample_loop(self.model, x.shape)
 
     def configure_optimizers(self):
+        print("DDP: configure_optimizers")
         if self.conf.training.optimizer.type == 'adam':
             optimizer = optim.Adam(self.model.parameters(), lr=self.conf.training.optimizer.lr)
         else:
@@ -149,6 +151,7 @@ class DDP(pl.LightningModule):
         return {'loss': loss, 'log': tensorboard_logs}
 
     def train_dataloader(self):
+        print("DPP: train_dataloader (get train_dataloader)")
         train_loader = DataLoader(self.train_set,
                                   batch_size=self.conf.training.dataloader.batch_size,
                                   shuffle=True,
@@ -180,6 +183,7 @@ class DDP(pl.LightningModule):
         return {'val_loss': avg_loss, 'log': tensorboard_logs}
 
     def val_dataloader(self):
+        print("DPP: val_dataloader (get val_dataloader)")
         valid_loader = DataLoader(self.valid_set,
                                   batch_size=self.conf.validation.dataloader.batch_size,
                                   shuffle=False,
@@ -189,6 +193,19 @@ class DDP(pl.LightningModule):
 
         return valid_loader
 
+def get_cond_img():
+    from PIL import Image
+    import torchvision.transforms as T
+    transform_test = T.Compose(
+        [
+            T.Resize(128),
+            T.ToTensor(),
+        ]
+    )
+    cond = Image.open('cond.jpg')
+    cond = transform_test(cond).unsqueeze(dim=0)
+    print("condition image shape:", cond.shape)
+    return cond
 
 if __name__ == "__main__":
 
@@ -213,7 +230,8 @@ if __name__ == "__main__":
     args.ckpt_dir = 'celeba_ckpt'
     args.ckpt_freq = 1
     args.model_dir = 'celeba_ckpt\\last.ckpt'
-    args.train = False
+    args.train = True
+    n_sanity_checks = 0
 
     path_to_config = args.config
     with open(path_to_config, 'r') as f:
@@ -239,7 +257,8 @@ if __name__ == "__main__":
                              precision=conf.model.precision,
                              gradient_clip_val=1.,
                              progress_bar_refresh_rate=20,
-                             checkpoint_callback=checkpoint_callback)
+                             checkpoint_callback=checkpoint_callback,
+                             num_sanity_val_steps=n_sanity_checks)
 
         trainer.fit(denoising_diffusion_model)
 
@@ -249,6 +268,8 @@ if __name__ == "__main__":
         state_dict = torch.load(args.model_dir)
         denoising_diffusion_model.load_state_dict(state_dict['state_dict'])
         denoising_diffusion_model.eval()
+
+        cond = get_cond_img()
 
         sample = progressive_samples_fn(denoising_diffusion_model.ema,
                                         denoising_diffusion_model.diffusion,
